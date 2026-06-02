@@ -470,21 +470,38 @@ def convert_document(input_path: str, output_format: str, output_path: Optional[
 @mcp.tool
 def odf_scan_guide() -> str:
     """
-    Show the steps to run the Zotero ODF Scan in LibreOffice to convert
-    scannable cite markers to live Zotero citations.
+    Show the steps to run the Zotero ODF Scan to convert scannable cite markers
+    to live Zotero citations.
+
+    NOTE: The ODF scan plugin runs INSIDE Zotero (on Windows), not in LibreOffice.
+    It is a Zotero plugin that processes the ODT file directly using Zotero's internal
+    citation formatting engine (CSL). It cannot be triggered via the Zotero HTTP API,
+    so this step remains manual.
     """
     return json.dumps({
-        "what_this_does": "Converts {  | Author, (Year) |  |  |zu:0:KEY} markers to live Zotero citations",
+        "what_this_does": (
+            "Converts {  | Author, (Year) |  |  |zu:0:KEY} plain-text markers "
+            "into live LibreOffice/Zotero citation fields that Zotero can manage "
+            "(update, reformat, generate bibliography from)."
+        ),
+        "where_it_runs": "Inside Zotero Desktop on Windows — NOT in LibreOffice",
         "steps": [
-            "1. Make sure the ODT file is open in LibreOffice Writer (in the VirtualBox VM)",
-            "2. In LibreOffice: Tools → Macros → Organize Basic Macros → find 'ODF Scan'",
-            "   OR use the Zotero toolbar → 'Switch Word Processors' → ODF Scan",
-            "3. Click 'Scan Document' — Zotero scans and replaces all markers",
-            "4. Save the file as .odt (keeps live citations)",
-            "5. To get a Word file: File → Save As → .docx",
-            "   OR from WSL: use the convert_document tool (odt → docx via pandoc)",
+            "1. LibreOffice does NOT need to be open for this step",
+            "2. In Zotero on Windows: Tools → ODF Scan",
+            "3. 'Input file': select your ODT file with scannable cite markers",
+            "4. 'Output file': choose where to save the converted file",
+            "5. Click 'Scan' — Zotero reads the ODT, resolves each zu:0:KEY citation,",
+            "   formats them via CSL, and writes a new ODT with live citation fields",
+            "6. Open the output ODT in LibreOffice to verify citations",
+            "7. To get a Word file: File → Save As → .docx in LibreOffice",
+            "   OR: use convert_document('/path/to/output.odt', 'docx') from WSL via pandoc",
         ],
-        "note": "ODF scan plugin: https://github.com/Juris-M/zotero-odf-scan-plugin (already at ~/github/zotero-odf-scan-plugin)",
+        "why_not_automated": (
+            "The ODF scan runs Zotero's internal JavaScript CSL citation engine — "
+            "it is not exposed via the Zotero local HTTP API (port 23119). "
+            "Automation would require reimplementing CSL formatting in Python."
+        ),
+        "plugin": "https://github.com/Juris-M/zotero-odf-scan-plugin",
     }, indent=2)
 
 
