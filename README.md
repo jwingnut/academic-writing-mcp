@@ -123,18 +123,25 @@ zotero_check_connection()
 
 ## Configuration
 
-`~/.claude/settings.json` entry written by `setup-wsl.sh`:
+### Step 1 — Create your `.env` file
+
+```bash
+cp .env.example .env
+# Edit .env with your machine-specific values (it is gitignored)
+```
+
+The server loads `.env` automatically on startup. This keeps your Zotero library ID, API keys, and machine-specific URLs out of version control.
+
+### Step 2 — Register in `~/.claude/settings.json`
+
+`setup-wsl.sh` writes this automatically, or add it manually:
 
 ```json
 {
   "mcpServers": {
     "writing": {
       "command": "/home/<user>/github/academic-writing-mcp/.venv/bin/python",
-      "args": ["/home/<user>/github/academic-writing-mcp/writing_mcp.py"],
-      "env": {
-        "LIBREOFFICE_URL": "http://172.28.32.1:8765",
-        "FASTMCP_SHOW_SERVER_BANNER": "false"
-      }
+      "args": ["/home/<user>/github/academic-writing-mcp/writing_mcp.py"]
     },
     "reference-mcp": {
       "command": "uvx",
@@ -144,7 +151,9 @@ zotero_check_connection()
 }
 ```
 
-### Environment variables (optional overrides)
+Note: `LIBREOFFICE_URL` and `FASTMCP_SHOW_SERVER_BANNER` come from `.env` — no need to repeat them in the MCP config.
+
+### Environment variables
 
 | Variable | Default | Purpose |
 |----------|---------|---------|

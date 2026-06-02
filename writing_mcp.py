@@ -29,8 +29,16 @@ import os
 import subprocess
 import json
 from typing import Optional
+from pathlib import Path
 import httpx
 from fastmcp import FastMCP
+
+# Load .env from repo directory if present (machine-specific overrides)
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).parent / ".env")
+except ImportError:
+    pass
 
 mcp = FastMCP("AcademicWriting")
 
