@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "writing": {
+      "command": "/home/jay/github/academic-writing-mcp/.venv/bin/python",
+      "args": ["/home/jay/github/academic-writing-mcp/writing_mcp.py"],
+      "env": {
+        "FASTMCP_SHOW_SERVER_BANNER": "false"
+      }
+    },
+    "reference-mcp": {
+      "command": "uvx",
+      "args": ["reference-mcp"]
+    }
+  }
+}
