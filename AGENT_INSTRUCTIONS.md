@@ -113,7 +113,7 @@ libre_save("/home/vboxuser/Documents/my_paper.odt")
 
 ```python
 # Via pandoc in WSL (fast, loses live citation fields — use for draft sharing)
-convert_document("/mnt/c/Users/jayw/Documents/paper.odt", "docx")
+convert_document("/mnt/c/Users/<username>/Documents/paper.odt", "docx")
 
 # For a Word file WITH live Zotero citations:
 # Open the scanned ODT in LibreOffice → File → Save As → .docx
@@ -126,10 +126,10 @@ convert_document("/mnt/c/Users/jayw/Documents/paper.odt", "docx")
 
 | Location | Path | Notes |
 |----------|------|-------|
-| Dissertation folder (Windows) | `/mnt/c/Users/jayw/OneDrive - University of California, Davis/Dissertation Proposal/` | Primary writing location |
+| Writing folder (Windows) | `/mnt/c/Users/<username>/OneDrive/Documents/` | Your primary writing location |
 | LibreOffice VM documents | `/home/vboxuser/Documents/` | VM internal path |
 | Shared folder (VM ↔ Windows) | Set up in VirtualBox settings | If configured, use for file transfer |
-| Writing MCP repo | `/home/jay/github/academic-writing-mcp/` | Tool source |
+| Writing MCP repo | `~/github/academic-writing-mcp/` | Tool source |
 
 ---
 
@@ -206,23 +206,21 @@ Then run `setup-windows.ps1` on Windows. Full docs in `README.md`.
 
 ## 7. Configuring for Codex (Windows)
 
-Add to `C:\Users\jayw\.codex\config.toml`:
+Add to `C:\Users\<username>\.codex\config.toml`:
 
 ```toml
 [mcp_servers.writing]
-command = "wsl"
-args = [
-  "-e",
-  "/home/jay/github/academic-writing-mcp/.venv/bin/python",
-  "/home/jay/github/academic-writing-mcp/writing_mcp.py"
-]
+command = "/home/<user>/github/academic-writing-mcp/.venv/bin/python"
+args = ["/home/<user>/github/academic-writing-mcp/writing_mcp.py"]
+startup_timeout_sec = 30.0
 
 [mcp_servers.writing.env]
 LIBREOFFICE_URL = "http://172.28.32.1:8765"
+FASTMCP_SHOW_SERVER_BANNER = "false"
 ```
 
-This runs the MCP server inside WSL via the `wsl -e` bridge so Codex on Windows
-can invoke it. The WSL IP and portproxy setup must still be in place.
+This assumes Codex runs inside WSL (the standard setup for codex-cli on WSL2).
+The WSL gateway IP and portproxy setup must still be in place.
 
 ---
 

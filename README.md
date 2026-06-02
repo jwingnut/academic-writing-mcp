@@ -24,7 +24,7 @@ Claude Code (WSL2)
 1. **Search Zotero** → get scannable cite markers  
    `{  | Author, (Year) |  |  |zu:0:ITEMKEY}`
 2. **Edit document in LibreOffice** (in VirtualBox VM) → insert markers
-3. **ODF Scan** in LibreOffice: Tools → Macros → Zotero ODF Scan → Scan Document  
+3. **ODF Scan** in Zotero: Tools → ODF Scan → select the ODT file  
    → markers become live Zotero citations
 4. **Export** as `.docx` for Word compatibility  
    (or use `convert_document` tool via pandoc)
@@ -129,10 +129,11 @@ zotero_check_connection()
 {
   "mcpServers": {
     "writing": {
-      "command": "/home/jay/github/academic-writing-mcp/.venv/bin/python",
-      "args": ["/home/jay/github/academic-writing-mcp/writing_mcp.py"],
+      "command": "/home/<user>/github/academic-writing-mcp/.venv/bin/python",
+      "args": ["/home/<user>/github/academic-writing-mcp/writing_mcp.py"],
       "env": {
-        "LIBREOFFICE_URL": "http://172.28.32.1:8765"
+        "LIBREOFFICE_URL": "http://172.28.32.1:8765",
+        "FASTMCP_SHOW_SERVER_BANNER": "false"
       }
     },
     "reference-mcp": {

@@ -436,7 +436,7 @@ def convert_document(input_path: str, output_format: str, output_path: Optional[
     Formats: pdf, docx, odt, html, md/markdown, tex/latex, rst, epub, rtf, txt
 
     Args:
-        input_path: Path to input file (WSL path, e.g. /mnt/c/Users/jayw/doc.odt)
+        input_path: Path to input file (WSL path, e.g. /mnt/c/Users/<username>/doc.odt)
         output_format: Target format (e.g. 'docx', 'odt', 'markdown')
         output_path: Output path (auto-generated from input if omitted)
     """
