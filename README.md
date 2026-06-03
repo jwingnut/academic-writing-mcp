@@ -12,6 +12,12 @@ Claude Code (WSL2)
             ├── zotero_* tools ──► Windows portproxy (172.28.32.1:23119)
             │                          └──► Zotero Desktop (Windows localhost:23119)
             │
+            ├── betterbibtex_* tools ─► Better BibTeX JSON-RPC
+            │                          └──► Zotero Desktop (Windows localhost:23119)
+            │
+            ├── docx_zotero_* tools ─► direct DOCX Word-field insertion
+            │                          └──► final numbering still refreshed in Word/Zotero
+            │
             ├── libre_* tools  ──► Windows portproxy (172.28.32.1:8765)
             │                          └──► VirtualBox NAT (Windows localhost:8765)
             │                                   └──► LibreOffice MCP extension (VM:8765)
@@ -28,6 +34,21 @@ Claude Code (WSL2)
    → markers become live Zotero citations
 4. **Export** as `.docx` for Word compatibility  
    (or use `convert_document` tool via pandoc)
+
+## Workflow: Direct DOCX Zotero Field Repair
+
+Use this when a Word document already exists and some citations are stale plain text,
+for example figure labels like `Chen & Zhan [78]` that Word/Zotero will not renumber.
+
+1. **Audit DOCX** with `docx_zotero_audit(path, suspect_terms=[...])`
+2. **Verify Zotero items** with `zotero_get_cites_batch([...])`
+3. **Optionally verify Better BibTeX keys** with `betterbibtex_citation_keys([...])`
+4. **Insert live fields** with `docx_zotero_insert_citations(...)`
+5. **Open in Word** and click Zotero **Refresh** to renumber citations and update the bibliography
+
+This is an enhancement to the Zotero Word workflow, not a replacement for Zotero.
+The MCP inserts Zotero-compatible Word field codes and item metadata. Zotero still
+performs final CSL formatting, numbering, and bibliography generation.
 
 ## Setup
 
@@ -97,6 +118,39 @@ zotero_check_connection()
 | `zotero_get_cite(key)` | Get `{  \| Author, (Year) \|  \|  \|zu:0:KEY}` for one item |
 | `zotero_get_cites_batch(keys)` | Bulk cite lookup |
 | `zotero_collections()` | List all collections |
+
+### Better BibTeX tools
+
+| Tool | Description |
+|------|-------------|
+| `betterbibtex_check_connection()` | Test BBT JSON-RPC connectivity |
+| `betterbibtex_citation_keys(item_keys)` | Map Zotero item keys to Better BibTeX citation keys |
+| `betterbibtex_export_items(citekeys, translator)` | Export items through BBT, e.g. Better BibTeX/BibLaTeX |
+
+### Direct DOCX/Zotero tools
+
+| Tool | Description |
+|------|-------------|
+| `docx_zotero_audit(docx_path, suspect_terms)` | Count live Zotero fields and find visible suspect citation text |
+| `docx_zotero_insert_citations(docx_path, replacements, output_path)` | Replace exact plain-text labels with Zotero Word fields |
+
+`docx_zotero_insert_citations` accepts replacements like:
+
+```json
+[
+  {
+    "old_text": "Chen & Zhan [78]",
+    "zotero_keys": ["WIVFG3LY"],
+    "display_text": "[Zotero citation]",
+    "keep_prefix_text": true
+  }
+]
+```
+
+With `keep_prefix_text: true`, the plain author text is preserved and only the
+bracketed citation is converted into a live Zotero field. After Word/Zotero
+refreshes the document, the visible placeholder is replaced with the correct
+number for the active citation style.
 
 ### LibreOffice tools
 

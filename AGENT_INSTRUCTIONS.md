@@ -15,6 +15,7 @@ Unified server combining Zotero, LibreOffice, and document conversion.
 ```
 zotero_check_connection()    → should return CONNECTED, shows library item count
 libre_check_connection()     → should return CONNECTED, confirms LibreOffice is open in VM
+betterbibtex_check_connection() → optional; should return CONNECTED when BBT is needed
 ```
 
 If either fails, see the Troubleshooting section below.
@@ -25,6 +26,10 @@ Lookup citations by DOI, CrossRef, Google Scholar. Use when a paper isn't in Zot
 ### `office-word-mcp`
 Direct editing of `.docx` files on the Windows filesystem. Use for Word documents that
 don't go through the Zotero ODF scan workflow (e.g. quick edits, formatting).
+
+The `writing` MCP also has direct DOCX/Zotero repair tools. Use these when a
+Word document already has Zotero fields but some citations are stale plain text
+that Word/Zotero will not renumber.
 
 ### `arXivPaper`
 Search and fetch arXiv papers. Useful for finding recent preprints.
@@ -122,7 +127,60 @@ convert_document("/mnt/c/Users/<username>/Documents/paper.odt", "docx")
 
 ---
 
-## 3. File Path Conventions
+## 3. Direct DOCX Zotero Field Repair
+
+Use this path for existing `.docx` manuscripts where citations are already mostly
+live Zotero fields, but some labels are plain text, often in figure/table text.
+
+This does **not** replace Zotero. It inserts Word fields that Zotero can refresh.
+Final numbering and bibliography updates still happen in Word through the Zotero
+plugin.
+
+### Audit
+
+```python
+docx_zotero_audit(
+    "/mnt/c/Users/<username>/Documents/paper.docx",
+    suspect_terms=["Chen & Zhan", "Sbayti", "Gan"]
+)
+```
+
+### Verify Zotero and Better BibTeX metadata
+
+```python
+zotero_get_cites_batch(["WIVFG3LY", "ZTSKQQU4", "BVF58E8R"])
+betterbibtex_citation_keys(["WIVFG3LY", "ZTSKQQU4", "BVF58E8R"])
+```
+
+### Insert live Word/Zotero fields
+
+```python
+docx_zotero_insert_citations(
+    docx_path="/mnt/c/Users/<username>/Documents/paper.docx",
+    output_path="/mnt/c/Users/<username>/Documents/paper_zotero_fixed.docx",
+    replacements=[
+        {
+            "old_text": "Chen & Zhan [78]",
+            "zotero_keys": ["WIVFG3LY"],
+            "display_text": "[Zotero citation]",
+            "keep_prefix_text": True
+        }
+    ]
+)
+```
+
+With `keep_prefix_text=True`, the author text (`Chen & Zhan`) remains normal text
+and only the numeric bracket is converted to a live Zotero field. After opening
+the output DOCX in Word, click **Zotero → Refresh** so Zotero renumbers citations
+and updates the bibliography.
+
+Use `fallback_paragraph_rewrite=True` only for simple figure/table labels where
+the target text spans multiple Word runs. It rewrites the affected paragraph's
+runs and is therefore more invasive.
+
+---
+
+## 4. File Path Conventions
 
 | Location | Path | Notes |
 |----------|------|-------|
@@ -133,7 +191,7 @@ convert_document("/mnt/c/Users/<username>/Documents/paper.odt", "docx")
 
 ---
 
-## 4. Creating a New Document
+## 5. Creating a New Document
 
 ```python
 # Create new Writer document in LibreOffice (VM)
@@ -152,7 +210,7 @@ libre_save("/home/vboxuser/Documents/new_paper.odt")
 
 ---
 
-## 5. Troubleshooting
+## 6. Troubleshooting
 
 ### Zotero not connected
 ```
@@ -192,7 +250,7 @@ writing_mcp._zotero_get("/items/KEY")
 
 ---
 
-## 6. Configuring This MCP in a New Claude Code Session
+## 7. Configuring This MCP in a New Claude Code Session
 
 The `writing` server is configured globally at `~/.claude/settings.json`.
 Any Claude Code session started in WSL2 on this machine already has the tools.
@@ -204,7 +262,7 @@ bash setup-wsl.sh
 ```
 Then run `setup-windows.ps1` on Windows. Full docs in `README.md`.
 
-## 7. Configuring for Codex (Windows)
+## 8. Configuring for Codex (Windows)
 
 Add to `C:\Users\<username>\.codex\config.toml`:
 
@@ -224,7 +282,7 @@ The WSL gateway IP and portproxy setup must still be in place.
 
 ---
 
-## 8. Quick-Start Prompt for a New Agent Session
+## 9. Quick-Start Prompt for a New Agent Session
 
 Paste this at the start of a new Claude Code or Codex session to orient the agent:
 
