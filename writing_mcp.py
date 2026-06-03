@@ -482,11 +482,17 @@ def _docx_live_zotero_summary(document_xml: str) -> dict:
 def _docx_copy_with_replaced_xml(input_path: Path, output_path: Path, replacements: dict[str, bytes]) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(input_path, "r") as zin, zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zout:
+        written = set()
         for item in zin.infolist():
             data = zin.read(item.filename)
             if item.filename in replacements:
                 data = replacements[item.filename]
             zout.writestr(item, data)
+            written.add(item.filename)
+        # Write new files that didn't exist in the input archive (e.g. comments.xml)
+        for name, data in replacements.items():
+            if name not in written:
+                zout.writestr(name, data)
 
 
 def _minimal_csl_from_zotero_item(item: dict) -> dict:
@@ -883,6 +889,80 @@ def betterbibtex_export_items(citekeys: list[str], translator: str = "Better Bib
     try:
         result = _bbt_rpc("item.export", [citekeys, translator])
         return json.dumps({"status": "ok", "translator": translator, "export": result}, indent=2)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+
+@mcp.tool
+def docx_extract_text(docx_path: str) -> str:
+    """
+    Extract all visible paragraph text from a DOCX without LibreOffice.
+
+    Returns each non-empty paragraph with its 1-based index, plus the full
+    concatenated text. Useful for reading document content before editing.
+
+    Args:
+        docx_path: Path to a .docx file.
+    """
+    path = _as_path(docx_path)
+    if not path.exists():
+        return json.dumps({"status": "error", "error": f"file not found: {path}"}, indent=2)
+    try:
+        xml = _docx_xml(path)
+        paragraphs = _docx_visible_paragraphs(xml)
+        full_text = "\n".join(p["text"] for p in paragraphs)
+        return json.dumps({
+            "status": "ok",
+            "docx_path": str(path),
+            "paragraph_count": len(paragraphs),
+            "paragraphs": paragraphs,
+            "full_text": full_text,
+        }, indent=2)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+
+@mcp.tool
+def docx_get_headings(docx_path: str) -> str:
+    """
+    Extract the heading structure (outline) of a DOCX without LibreOffice.
+
+    Returns headings in document order with their level (1 = Heading 1,
+    2 = Heading 2, etc.) and paragraph index. Useful for navigating large
+    manuscripts before targeted edits.
+
+    Args:
+        docx_path: Path to a .docx file.
+    """
+    path = _as_path(docx_path)
+    if not path.exists():
+        return json.dumps({"status": "error", "error": f"file not found: {path}"}, indent=2)
+    try:
+        xml = _docx_xml(path)
+        _register_doc_namespaces(xml)
+        root = ET.fromstring(xml.encode("utf-8"))
+        headings = []
+        for i, p in enumerate(root.iter(_w("p")), start=1):
+            ppr = p.find(_w("pPr"))
+            if ppr is None:
+                continue
+            pstyle = ppr.find(_w("pStyle"))
+            if pstyle is None:
+                continue
+            val = pstyle.get(_w("val"), "")
+            m = re.match(r"[Hh]eading(\d+)", val)
+            if not m:
+                continue
+            level = int(m.group(1))
+            text = "".join(t.text or "" for t in p.iter(_w("t"))).strip()
+            if text:
+                headings.append({"paragraph_index": i, "level": level, "text": text})
+        return json.dumps({
+            "status": "ok",
+            "docx_path": str(path),
+            "heading_count": len(headings),
+            "headings": headings,
+        }, indent=2)
     except Exception as e:
         return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
