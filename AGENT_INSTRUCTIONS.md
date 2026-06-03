@@ -27,9 +27,11 @@ Lookup citations by DOI, CrossRef, Google Scholar. Use when a paper isn't in Zot
 Direct editing of `.docx` files on the Windows filesystem. Use for Word documents that
 don't go through the Zotero ODF scan workflow (e.g. quick edits, formatting).
 
-The `writing` MCP also has direct DOCX/Zotero repair tools. Use these when a
-Word document already has Zotero fields but some citations are stale plain text
-that Word/Zotero will not renumber.
+The `writing` MCP also has direct DOCX tools (no LibreOffice required):
+
+- **Read**: `docx_extract_text(path)` — all visible paragraphs; `docx_get_headings(path)` — heading outline
+- **Edit**: `docx_text_replace(path, replacements, track_changes=True)` — find/replace with optional tracked changes; `docx_add_comment(path, comments)` — add review comments
+- **Zotero repair**: `docx_zotero_audit` + `docx_zotero_insert_citations` — for stale plain-text citation labels in manuscripts with live Zotero fields
 
 ### `arXivPaper`
 Search and fetch arXiv papers. Useful for finding recent preprints.
@@ -127,14 +129,56 @@ convert_document("/mnt/c/Users/<username>/Documents/paper.odt", "docx")
 
 ---
 
-## 3. Direct DOCX Zotero Field Repair
+## 3. Direct DOCX Editing (no LibreOffice required)
 
-Use this path for existing `.docx` manuscripts where citations are already mostly
-live Zotero fields, but some labels are plain text, often in figure/table text.
+All tools below operate directly on `.docx` files without opening LibreOffice or Word.
+They work on WSL paths (`/mnt/c/...`) or local paths.
 
-This does **not** replace Zotero. It inserts Word fields that Zotero can refresh.
-Final numbering and bibliography updates still happen in Word through the Zotero
-plugin.
+### Read document content
+
+```python
+docx_extract_text("/mnt/c/Users/<username>/Documents/paper.docx")
+# → returns all paragraphs with index, plus full_text string
+
+docx_get_headings("/mnt/c/Users/<username>/Documents/paper.docx")
+# → returns [{level: 1, text: "Introduction", paragraph_index: 3}, ...]
+```
+
+### Edit text / add comments
+
+```python
+# Plain find-and-replace (no Zotero involvement)
+docx_text_replace(
+    "/mnt/c/.../paper.docx",
+    replacements=[{"find": "manuscipt", "replace": "manuscript"}],
+    output_path="/mnt/c/.../paper_fixed.docx",
+)
+
+# Same but with Word tracked changes so the author can Accept/Reject
+docx_text_replace(
+    "/mnt/c/.../paper.docx",
+    replacements=[{"find": "old wording", "replace": "new wording"}],
+    output_path="/mnt/c/.../paper_tracked.docx",
+    track_changes=True,
+    author="writing-mcp",
+)
+
+# Add review comments anchored to specific text
+docx_add_comment(
+    "/mnt/c/.../paper.docx",
+    comments=[
+        {"find": "Figure 3", "comment": "Check axis labels match methods section."},
+        {"find": "p < 0.05", "comment": "Report exact p-value here."},
+    ],
+    output_path="/mnt/c/.../paper_commented.docx",
+)
+```
+
+### Zotero field repair (stale plain-text citations)
+
+Use this sub-workflow when the manuscript already has live Zotero fields but some
+citation labels are plain text (e.g. figure captions) that Word/Zotero will not
+renumber.
 
 ### Audit
 

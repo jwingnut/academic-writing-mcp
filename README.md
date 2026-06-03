@@ -127,11 +127,15 @@ zotero_check_connection()
 | `betterbibtex_citation_keys(item_keys)` | Map Zotero item keys to Better BibTeX citation keys |
 | `betterbibtex_export_items(citekeys, translator)` | Export items through BBT, e.g. Better BibTeX/BibLaTeX |
 
-### Direct DOCX/Zotero tools
+### Direct DOCX tools (no LibreOffice required)
 
 | Tool | Description |
 |------|-------------|
+| `docx_extract_text(docx_path)` | Extract all visible paragraph text from a DOCX |
+| `docx_get_headings(docx_path)` | Extract heading outline (level + text) for navigation |
 | `docx_zotero_audit(docx_path, suspect_terms)` | Count live Zotero fields and find visible suspect citation text |
+| `docx_text_replace(docx_path, replacements, track_changes)` | Find-and-replace plain text; optionally emit tracked changes |
+| `docx_add_comment(docx_path, comments, author)` | Add review comments anchored to specific text |
 | `docx_zotero_insert_citations(docx_path, replacements, output_path)` | Replace exact plain-text labels with Zotero Word fields |
 
 `docx_zotero_insert_citations` accepts replacements like:
