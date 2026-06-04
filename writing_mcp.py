@@ -37,6 +37,7 @@ from pathlib import Path
 from xml.etree import ElementTree as ET
 import httpx
 from fastmcp import FastMCP
+from fastmcp.utilities.types import Image as MCPImage
 
 # Load .env from repo directory if present (machine-specific overrides)
 try:
@@ -1546,6 +1547,55 @@ def docx_replace_image(
             "new_image": str(new_img),
             "output_path": str(out_path),
         }, indent=2)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+
+@mcp.tool
+def docx_extract_image(docx_path: str, rid: str) -> MCPImage | str:
+    """
+    Extract an embedded image from a DOCX and return it so the LLM can view it.
+
+    The image is returned as MCP ImageContent, meaning Claude can see and
+    describe the figure directly — checking axis labels, legends, layout, etc.
+    Use docx_list_images to find the rId for the image you want.
+
+    Args:
+        docx_path: Path to a .docx file.
+        rid: Relationship ID of the image to extract (e.g. "rId5").
+    """
+    path = _as_path(docx_path)
+    if not path.exists():
+        return json.dumps({"status": "error", "error": f"file not found: {path}"}, indent=2)
+    try:
+        with zipfile.ZipFile(path, "r") as zf:
+            rels_xml = zf.read("word/_rels/document.xml.rels").decode("utf-8")
+            IMAGE_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
+            PKG_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
+            _register_doc_namespaces(rels_xml)
+            rels_root = ET.fromstring(rels_xml.encode("utf-8"))
+            archive_path = None
+            fmt = "png"
+            for rel in rels_root.iter(f"{{{PKG_NS}}}Relationship"):
+                if rel.get("Type") == IMAGE_TYPE and rel.get("Id") == rid:
+                    target = rel.get("Target", "")
+                    archive_path = f"word/{target}" if not target.startswith("/") else target.lstrip("/")
+                    fmt = target.rsplit(".", 1)[-1].lower()
+                    break
+            if archive_path is None:
+                return json.dumps({"status": "error", "error": f"rId '{rid}' not found or is not an image"}, indent=2)
+            if archive_path not in zf.namelist():
+                return json.dumps({"status": "error", "error": f"image file missing in archive: {archive_path}"}, indent=2)
+            image_data = zf.read(archive_path)
+        # EMF/WMF are Windows metafiles — not renderable by Claude; return info instead
+        if fmt in ("emf", "wmf"):
+            return json.dumps({
+                "status": "not_renderable",
+                "reason": f"{fmt.upper()} vector metafiles cannot be displayed. "
+                          "Export the figure as PNG/JPEG for LLM viewing.",
+                "archive_path": archive_path,
+            }, indent=2)
+        return MCPImage(data=image_data, format=fmt)
     except Exception as e:
         return json.dumps({"status": "error", "error": str(e)}, indent=2)
 

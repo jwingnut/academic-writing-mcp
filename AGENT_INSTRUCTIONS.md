@@ -29,7 +29,7 @@ don't go through the Zotero ODF scan workflow (e.g. quick edits, formatting).
 
 The `writing` MCP also has direct DOCX tools (no LibreOffice required):
 
-- **Read**: `docx_extract_text` — all visible paragraphs; `docx_get_headings` — heading outline; `docx_get_tables` — table data; `docx_get_properties` — title/author/word count/page count; `docx_list_images` — embedded figures with rId and alt text
+- **Read**: `docx_extract_text` — all visible paragraphs; `docx_get_headings` — heading outline; `docx_get_tables` — table data; `docx_get_properties` — title/author/word count/page count; `docx_list_images` — embedded figures with rId and alt text; `docx_extract_image(path, rid)` — returns the image so the LLM can view and describe it
 - **Edit**: `docx_text_replace(…, track_changes=True)` — find/replace with optional tracked changes; `docx_replace_image(…, rid, new_image_path)` — swap a figure by rId
 - **Review**: `docx_add_comment` — add comments; `docx_get_comments` — read existing comments; `docx_get_tracked_changes` — list pending changes; `docx_accept_tracked_changes` — produce a clean accepted copy
 - **Zotero repair**: `docx_zotero_audit` + `docx_zotero_insert_citations` — for stale plain-text citation labels in manuscripts with live Zotero fields

@@ -772,6 +772,66 @@ def _build_docx_with_properties(tmp_path: Path, name: str = "props.docx") -> Pat
 
 
 # ---------------------------------------------------------------------------
+# docx_extract_image
+# ---------------------------------------------------------------------------
+
+class TestDocxExtractImage:
+    def test_file_not_found(self, tmp_path):
+        result = json.loads(mcp_mod.docx_extract_image(str(tmp_path / "missing.docx"), "rId5"))
+        assert result["status"] == "error"
+
+    def test_invalid_rid(self, tmp_path):
+        docx = _build_docx_with_image(tmp_path)
+        result = json.loads(mcp_mod.docx_extract_image(str(docx), "rId99"))
+        assert result["status"] == "error"
+        assert "not found" in result["error"]
+
+    def test_returns_image_object(self, tmp_path):
+        from fastmcp.utilities.types import Image as MCPImage
+        docx = _build_docx_with_image(tmp_path)
+        result = mcp_mod.docx_extract_image(str(docx), "rId5")
+        assert isinstance(result, MCPImage)
+
+    def test_image_data_matches_original(self, tmp_path):
+        docx = _build_docx_with_image(tmp_path)
+        result = mcp_mod.docx_extract_image(str(docx), "rId5")
+        # MCPImage._get_data() returns base64; decode and compare bytes
+        import base64
+        raw = base64.b64decode(result._get_data())
+        assert raw == _TINY_PNG
+
+    def test_image_format_inferred(self, tmp_path):
+        docx = _build_docx_with_image(tmp_path)
+        result = mcp_mod.docx_extract_image(str(docx), "rId5")
+        assert "png" in result._mime_type
+
+    def test_emf_returns_not_renderable(self, tmp_path):
+        # Build a DOCX with an EMF relationship
+        emf_rels = f"""\
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="{_PKG_NS}">
+  <Relationship Id="rId1"
+   Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles"
+   Target="styles.xml"/>
+  <Relationship Id="rId6"
+   Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
+   Target="media/figure.emf"/>
+</Relationships>
+"""
+        out = tmp_path / "emf.docx"
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("[Content_Types].xml", _CONTENT_TYPES)
+            zf.writestr("_rels/.rels", _RELS)
+            zf.writestr("word/document.xml", _make_document_xml("EMF figure doc."))
+            zf.writestr("word/_rels/document.xml.rels", emf_rels)
+            zf.writestr("word/media/figure.emf", b"\x01\x00\x00\x00")
+        out.write_bytes(buf.getvalue())
+        result = json.loads(mcp_mod.docx_extract_image(str(out), "rId6"))
+        assert result["status"] == "not_renderable"
+
+
+# ---------------------------------------------------------------------------
 # docx_list_images
 # ---------------------------------------------------------------------------
 

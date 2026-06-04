@@ -136,6 +136,7 @@ zotero_check_connection()
 | `docx_get_tables(docx_path)` | Extract all tables as structured row/cell data |
 | `docx_get_properties(docx_path)` | Read document metadata (title, author, word count, page count) |
 | `docx_list_images(docx_path)` | List embedded images with rId, filename, and alt text |
+| `docx_extract_image(docx_path, rid)` | Extract an image and return it so the LLM can view/describe it |
 | `docx_replace_image(docx_path, rid, new_image_path)` | Swap an embedded image by relationship ID |
 | `docx_text_replace(docx_path, replacements, track_changes)` | Find-and-replace plain text; optionally emit tracked changes |
 | `docx_add_comment(docx_path, comments, author)` | Add review comments anchored to specific text |
