@@ -588,3 +588,545 @@ class TestDocxGetHeadings:
         result = json.loads(mcp_mod.docx_get_headings(str(docx)))
         assert result["status"] == "ok"
         assert result["headings"] == []
+
+
+# ---------------------------------------------------------------------------
+# DOCX builder helpers for new tools
+# ---------------------------------------------------------------------------
+
+_R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+_PKG_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
+_WP_NS = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+_A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
+
+_CONTENT_TYPES_WITH_IMAGE = """\
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Default Extension="png" ContentType="image/png"/>
+  <Override PartName="/word/document.xml"
+   ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+  <Override PartName="/docProps/core.xml"
+   ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
+  <Override PartName="/docProps/app.xml"
+   ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>
+</Types>
+"""
+
+_DOC_RELS_WITH_IMAGE = f"""\
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="{_PKG_NS}">
+  <Relationship Id="rId1"
+   Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles"
+   Target="styles.xml"/>
+  <Relationship Id="rId5"
+   Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
+   Target="media/image1.png"/>
+</Relationships>
+"""
+
+_CORE_XML = """\
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties
+  xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"
+  xmlns:dc="http://purl.org/dc/elements/1.1/"
+  xmlns:dcterms="http://purl.org/dc/terms/"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <dc:title>Test Paper</dc:title>
+  <dc:creator>Jane Smith</dc:creator>
+  <cp:lastModifiedBy>Jane Smith</cp:lastModifiedBy>
+  <cp:revision>3</cp:revision>
+  <dcterms:created xsi:type="dcterms:W3CDTF">2024-01-01T00:00:00Z</dcterms:created>
+  <dcterms:modified xsi:type="dcterms:W3CDTF">2024-06-01T12:00:00Z</dcterms:modified>
+</cp:coreProperties>
+"""
+
+_APP_XML = """\
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties">
+  <Application>Microsoft Office Word</Application>
+  <Pages>4</Pages>
+  <Words>1234</Words>
+  <Characters>7000</Characters>
+  <Paragraphs>50</Paragraphs>
+</Properties>
+"""
+
+_TINY_PNG = (
+    b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01'
+    b'\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\x0f\x00'
+    b'\x00\x01\x01\x00\x05\x18\xd8N\x00\x00\x00\x00IEND\xaeB`\x82'
+)
+
+
+def _make_doc_xml_with_image() -> str:
+    return (
+        f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        f'<w:document xmlns:w="{_W_NS}"'
+        f' xmlns:r="{_R_NS}"'
+        f' xmlns:wp="{_WP_NS}"'
+        f' xmlns:a="{_A_NS}">'
+        f'<w:body>'
+        f'<w:p><w:r><w:t>See Figure 1.</w:t></w:r></w:p>'
+        f'<w:p><w:r><w:drawing>'
+        f'<wp:inline>'
+        f'<wp:docPr id="1" name="Figure1" descr="My figure alt text"/>'
+        f'<a:graphic><a:graphicData>'
+        f'<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">'
+        f'<pic:blipFill><a:blip r:embed="rId5"/></pic:blipFill>'
+        f'</pic:pic>'
+        f'</a:graphicData></a:graphic>'
+        f'</wp:inline>'
+        f'</w:drawing></w:r></w:p>'
+        f'<w:sectPr/></w:body></w:document>'
+    )
+
+
+def _make_doc_xml_with_table() -> str:
+    return (
+        f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        f'<w:document xmlns:w="{_W_NS}"><w:body>'
+        f'<w:p><w:r><w:t>Before table.</w:t></w:r></w:p>'
+        f'<w:tbl>'
+        f'<w:tr><w:tc><w:p><w:r><w:t>A1</w:t></w:r></w:p></w:tc>'
+        f'<w:tc><w:p><w:r><w:t>B1</w:t></w:r></w:p></w:tc></w:tr>'
+        f'<w:tr><w:tc><w:p><w:r><w:t>A2</w:t></w:r></w:p></w:tc>'
+        f'<w:tc><w:p><w:r><w:t>B2</w:t></w:r></w:p></w:tc></w:tr>'
+        f'</w:tbl>'
+        f'<w:tbl>'
+        f'<w:tr><w:tc><w:p><w:r><w:t>X</w:t></w:r></w:p></w:tc></w:tr>'
+        f'</w:tbl>'
+        f'<w:sectPr/></w:body></w:document>'
+    )
+
+
+def _make_doc_xml_with_tracked_changes() -> str:
+    return (
+        f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        f'<w:document xmlns:w="{_W_NS}"><w:body>'
+        f'<w:p>'
+        f'<w:del w:id="1" w:author="Alice" w:date="2024-01-01T00:00:00Z">'
+        f'<w:r><w:delText>old word</w:delText></w:r>'
+        f'</w:del>'
+        f'<w:ins w:id="2" w:author="Alice" w:date="2024-01-01T00:00:00Z">'
+        f'<w:r><w:t>new word</w:t></w:r>'
+        f'</w:ins>'
+        f'<w:r><w:t> remains.</w:t></w:r>'
+        f'</w:p>'
+        f'<w:sectPr/></w:body></w:document>'
+    )
+
+
+def _build_docx_with_image(tmp_path: Path, name: str = "img.docx") -> Path:
+    out = tmp_path / name
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("[Content_Types].xml", _CONTENT_TYPES_WITH_IMAGE)
+        zf.writestr("_rels/.rels", _RELS)
+        zf.writestr("word/document.xml", _make_doc_xml_with_image())
+        zf.writestr("word/_rels/document.xml.rels", _DOC_RELS_WITH_IMAGE)
+        zf.writestr("word/media/image1.png", _TINY_PNG)
+        zf.writestr("docProps/core.xml", _CORE_XML)
+        zf.writestr("docProps/app.xml", _APP_XML)
+    out.write_bytes(buf.getvalue())
+    return out
+
+
+def _build_docx_with_table(tmp_path: Path, name: str = "table.docx") -> Path:
+    out = tmp_path / name
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("[Content_Types].xml", _CONTENT_TYPES)
+        zf.writestr("_rels/.rels", _RELS)
+        zf.writestr("word/document.xml", _make_doc_xml_with_table())
+        zf.writestr("word/_rels/document.xml.rels", _DOC_RELS)
+    out.write_bytes(buf.getvalue())
+    return out
+
+
+def _build_docx_with_tracked_changes(tmp_path: Path, name: str = "tracked.docx") -> Path:
+    out = tmp_path / name
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("[Content_Types].xml", _CONTENT_TYPES)
+        zf.writestr("_rels/.rels", _RELS)
+        zf.writestr("word/document.xml", _make_doc_xml_with_tracked_changes())
+        zf.writestr("word/_rels/document.xml.rels", _DOC_RELS)
+    out.write_bytes(buf.getvalue())
+    return out
+
+
+def _build_docx_with_properties(tmp_path: Path, name: str = "props.docx") -> Path:
+    out = tmp_path / name
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("[Content_Types].xml", _CONTENT_TYPES_WITH_IMAGE)
+        zf.writestr("_rels/.rels", _RELS)
+        zf.writestr("word/document.xml", _make_document_xml("Body text."))
+        zf.writestr("word/_rels/document.xml.rels", _DOC_RELS)
+        zf.writestr("docProps/core.xml", _CORE_XML)
+        zf.writestr("docProps/app.xml", _APP_XML)
+    out.write_bytes(buf.getvalue())
+    return out
+
+
+# ---------------------------------------------------------------------------
+# docx_list_images
+# ---------------------------------------------------------------------------
+
+class TestDocxListImages:
+    def test_file_not_found(self, tmp_path):
+        result = json.loads(mcp_mod.docx_list_images(str(tmp_path / "missing.docx")))
+        assert result["status"] == "error"
+
+    def test_lists_one_image(self, tmp_path):
+        docx = _build_docx_with_image(tmp_path)
+        result = json.loads(mcp_mod.docx_list_images(str(docx)))
+        assert result["status"] == "ok"
+        assert result["image_count"] == 1
+        img = result["images"][0]
+        assert img["rId"] == "rId5"
+        assert img["filename"] == "image1.png"
+        assert img["exists_in_archive"] is True
+
+    def test_alt_text_extracted(self, tmp_path):
+        docx = _build_docx_with_image(tmp_path)
+        result = json.loads(mcp_mod.docx_list_images(str(docx)))
+        assert result["images"][0]["alt_text"] == "My figure alt text"
+
+    def test_no_images(self, tmp_path):
+        docx = _build_docx(tmp_path)
+        result = json.loads(mcp_mod.docx_list_images(str(docx)))
+        assert result["status"] == "ok"
+        assert result["image_count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# docx_replace_image
+# ---------------------------------------------------------------------------
+
+class TestDocxReplaceImage:
+    def test_file_not_found(self, tmp_path):
+        img = tmp_path / "new.png"
+        img.write_bytes(_TINY_PNG)
+        result = json.loads(mcp_mod.docx_replace_image(
+            str(tmp_path / "missing.docx"), "rId5", str(img),
+        ))
+        assert result["status"] == "error"
+
+    def test_new_image_not_found(self, tmp_path):
+        docx = _build_docx_with_image(tmp_path)
+        result = json.loads(mcp_mod.docx_replace_image(
+            str(docx), "rId5", str(tmp_path / "ghost.png"),
+        ))
+        assert result["status"] == "error"
+        assert "new image not found" in result["error"]
+
+    def test_invalid_rid(self, tmp_path):
+        docx = _build_docx_with_image(tmp_path)
+        img = tmp_path / "new.png"
+        img.write_bytes(_TINY_PNG)
+        result = json.loads(mcp_mod.docx_replace_image(
+            str(docx), "rId99", str(img),
+            output_path=str(tmp_path / "out.docx"), overwrite=True,
+        ))
+        assert result["status"] == "error"
+        assert "not found" in result["error"]
+
+    def test_successful_replace(self, tmp_path):
+        docx = _build_docx_with_image(tmp_path)
+        new_img = tmp_path / "new.png"
+        new_img.write_bytes(_TINY_PNG + b"\x00\x00")  # slightly different bytes
+        out = tmp_path / "out.docx"
+        result = json.loads(mcp_mod.docx_replace_image(
+            str(docx), "rId5", str(new_img),
+            output_path=str(out), overwrite=True,
+        ))
+        assert result["status"] == "ok"
+        assert result["rId"] == "rId5"
+        with zipfile.ZipFile(str(out)) as zf:
+            stored = zf.read("word/media/image1.png")
+        assert stored == _TINY_PNG + b"\x00\x00"
+
+    def test_overwrite_protection(self, tmp_path):
+        docx = _build_docx_with_image(tmp_path)
+        img = tmp_path / "new.png"
+        img.write_bytes(_TINY_PNG)
+        out = tmp_path / "out.docx"
+        out.write_bytes(b"existing")
+        result = json.loads(mcp_mod.docx_replace_image(
+            str(docx), "rId5", str(img), output_path=str(out),
+        ))
+        assert result["status"] == "error"
+        assert "set_overwrite" in result
+
+    def test_output_is_valid_zip(self, tmp_path):
+        docx = _build_docx_with_image(tmp_path)
+        img = tmp_path / "new.png"
+        img.write_bytes(_TINY_PNG)
+        out = tmp_path / "out.docx"
+        mcp_mod.docx_replace_image(
+            str(docx), "rId5", str(img), output_path=str(out), overwrite=True,
+        )
+        assert zipfile.is_zipfile(str(out))
+
+
+# ---------------------------------------------------------------------------
+# docx_get_tables
+# ---------------------------------------------------------------------------
+
+class TestDocxGetTables:
+    def test_file_not_found(self, tmp_path):
+        result = json.loads(mcp_mod.docx_get_tables(str(tmp_path / "missing.docx")))
+        assert result["status"] == "error"
+
+    def test_finds_two_tables(self, tmp_path):
+        docx = _build_docx_with_table(tmp_path)
+        result = json.loads(mcp_mod.docx_get_tables(str(docx)))
+        assert result["status"] == "ok"
+        assert result["table_count"] == 2
+
+    def test_table_content(self, tmp_path):
+        docx = _build_docx_with_table(tmp_path)
+        result = json.loads(mcp_mod.docx_get_tables(str(docx)))
+        t1 = result["tables"][0]
+        assert t1["row_count"] == 2
+        assert t1["col_count"] == 2
+        assert t1["rows"][0] == ["A1", "B1"]
+        assert t1["rows"][1] == ["A2", "B2"]
+
+    def test_second_table(self, tmp_path):
+        docx = _build_docx_with_table(tmp_path)
+        result = json.loads(mcp_mod.docx_get_tables(str(docx)))
+        t2 = result["tables"][1]
+        assert t2["rows"][0] == ["X"]
+
+    def test_no_tables(self, tmp_path):
+        docx = _build_docx(tmp_path)
+        result = json.loads(mcp_mod.docx_get_tables(str(docx)))
+        assert result["status"] == "ok"
+        assert result["table_count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# docx_get_comments
+# ---------------------------------------------------------------------------
+
+class TestDocxGetComments:
+    def test_file_not_found(self, tmp_path):
+        result = json.loads(mcp_mod.docx_get_comments(str(tmp_path / "missing.docx")))
+        assert result["status"] == "error"
+
+    def test_no_comments_file(self, tmp_path):
+        docx = _build_docx(tmp_path)
+        result = json.loads(mcp_mod.docx_get_comments(str(docx)))
+        assert result["status"] == "ok"
+        assert result["comment_count"] == 0
+        assert result["comments"] == []
+
+    def test_reads_existing_comments(self, tmp_path):
+        # Build a DOCX that already has a comments.xml via docx_add_comment
+        docx = _build_docx(tmp_path, "input.docx", "Annotate this sentence here.")
+        commented = tmp_path / "commented.docx"
+        mcp_mod.docx_add_comment(
+            str(docx),
+            [{"find": "Annotate", "comment": "Check this reference."}],
+            output_path=str(commented),
+            overwrite=True,
+            author="Reviewer1",
+        )
+        result = json.loads(mcp_mod.docx_get_comments(str(commented)))
+        assert result["status"] == "ok"
+        assert result["comment_count"] == 1
+        c = result["comments"][0]
+        assert c["author"] == "Reviewer1"
+        assert "Check this reference." in c["text"]
+
+    def test_multiple_comments(self, tmp_path):
+        docx = _build_docx(tmp_path, "input.docx",
+                            "First anchor text here.", "Second anchor text here.")
+        commented = tmp_path / "commented.docx"
+        mcp_mod.docx_add_comment(
+            str(docx),
+            [
+                {"find": "First anchor", "comment": "Note one."},
+                {"find": "Second anchor", "comment": "Note two."},
+            ],
+            output_path=str(commented),
+            overwrite=True,
+        )
+        result = json.loads(mcp_mod.docx_get_comments(str(commented)))
+        assert result["comment_count"] == 2
+        texts = [c["text"] for c in result["comments"]]
+        assert "Note one." in texts
+        assert "Note two." in texts
+
+
+# ---------------------------------------------------------------------------
+# docx_get_tracked_changes
+# ---------------------------------------------------------------------------
+
+class TestDocxGetTrackedChanges:
+    def test_file_not_found(self, tmp_path):
+        result = json.loads(mcp_mod.docx_get_tracked_changes(str(tmp_path / "missing.docx")))
+        assert result["status"] == "error"
+
+    def test_no_tracked_changes(self, tmp_path):
+        docx = _build_docx(tmp_path)
+        result = json.loads(mcp_mod.docx_get_tracked_changes(str(docx)))
+        assert result["status"] == "ok"
+        assert result["change_count"] == 0
+
+    def test_finds_deletion_and_insertion(self, tmp_path):
+        docx = _build_docx_with_tracked_changes(tmp_path)
+        result = json.loads(mcp_mod.docx_get_tracked_changes(str(docx)))
+        assert result["status"] == "ok"
+        assert result["change_count"] == 2
+        types = {c["type"] for c in result["changes"]}
+        assert "deletion" in types
+        assert "insertion" in types
+
+    def test_deletion_text(self, tmp_path):
+        docx = _build_docx_with_tracked_changes(tmp_path)
+        result = json.loads(mcp_mod.docx_get_tracked_changes(str(docx)))
+        deletions = [c for c in result["changes"] if c["type"] == "deletion"]
+        assert deletions[0]["text"] == "old word"
+        assert deletions[0]["author"] == "Alice"
+
+    def test_insertion_text(self, tmp_path):
+        docx = _build_docx_with_tracked_changes(tmp_path)
+        result = json.loads(mcp_mod.docx_get_tracked_changes(str(docx)))
+        insertions = [c for c in result["changes"] if c["type"] == "insertion"]
+        assert insertions[0]["text"] == "new word"
+
+    def test_track_changes_tool_produces_detectable_changes(self, tmp_path):
+        docx = _build_docx(tmp_path, "input.docx", "This is original text.")
+        edited = tmp_path / "edited.docx"
+        mcp_mod.docx_text_replace(
+            str(docx),
+            [{"find": "original", "replace": "revised"}],
+            output_path=str(edited),
+            overwrite=True,
+            track_changes=True,
+        )
+        result = json.loads(mcp_mod.docx_get_tracked_changes(str(edited)))
+        assert result["change_count"] == 2
+        types = {c["type"] for c in result["changes"]}
+        assert "deletion" in types
+        assert "insertion" in types
+
+
+# ---------------------------------------------------------------------------
+# docx_accept_tracked_changes
+# ---------------------------------------------------------------------------
+
+class TestDocxAcceptTrackedChanges:
+    def test_file_not_found(self, tmp_path):
+        result = json.loads(mcp_mod.docx_accept_tracked_changes(str(tmp_path / "missing.docx")))
+        assert result["status"] == "error"
+
+    def test_accept_on_clean_doc(self, tmp_path):
+        docx = _build_docx(tmp_path, "input.docx", "Clean document.")
+        out = tmp_path / "accepted.docx"
+        result = json.loads(mcp_mod.docx_accept_tracked_changes(
+            str(docx), output_path=str(out), overwrite=True,
+        ))
+        assert result["status"] == "ok"
+        assert result["deletions_removed"] == 0
+        assert result["insertions_accepted"] == 0
+
+    def test_accepts_changes(self, tmp_path):
+        docx = _build_docx_with_tracked_changes(tmp_path)
+        out = tmp_path / "accepted.docx"
+        result = json.loads(mcp_mod.docx_accept_tracked_changes(
+            str(docx), output_path=str(out), overwrite=True,
+        ))
+        assert result["status"] == "ok"
+        assert result["deletions_removed"] == 1
+        assert result["insertions_accepted"] == 1
+
+    def test_output_text_contains_insertion_not_deletion(self, tmp_path):
+        docx = _build_docx_with_tracked_changes(tmp_path)
+        out = tmp_path / "accepted.docx"
+        mcp_mod.docx_accept_tracked_changes(
+            str(docx), output_path=str(out), overwrite=True,
+        )
+        text = _read_output_text(str(out))
+        assert "new word" in text
+        assert "old word" not in text
+
+    def test_no_del_ins_in_output_xml(self, tmp_path):
+        docx = _build_docx_with_tracked_changes(tmp_path)
+        out = tmp_path / "accepted.docx"
+        mcp_mod.docx_accept_tracked_changes(
+            str(docx), output_path=str(out), overwrite=True,
+        )
+        with zipfile.ZipFile(str(out)) as zf:
+            doc_xml = zf.read("word/document.xml").decode()
+        assert "w:del" not in doc_xml
+        assert "w:ins" not in doc_xml
+
+    def test_overwrite_protection(self, tmp_path):
+        docx = _build_docx_with_tracked_changes(tmp_path)
+        out = tmp_path / "out.docx"
+        out.write_bytes(b"existing")
+        result = json.loads(mcp_mod.docx_accept_tracked_changes(str(docx), output_path=str(out)))
+        assert result["status"] == "error"
+        assert "set_overwrite" in result
+
+    def test_output_is_valid_zip(self, tmp_path):
+        docx = _build_docx_with_tracked_changes(tmp_path)
+        out = tmp_path / "accepted.docx"
+        mcp_mod.docx_accept_tracked_changes(str(docx), output_path=str(out), overwrite=True)
+        assert zipfile.is_zipfile(str(out))
+
+    def test_roundtrip_via_text_replace_track_then_accept(self, tmp_path):
+        docx = _build_docx(tmp_path, "input.docx", "Manuscript text goes here.")
+        tracked = tmp_path / "tracked.docx"
+        mcp_mod.docx_text_replace(
+            str(docx),
+            [{"find": "Manuscript", "replace": "Paper"}],
+            output_path=str(tracked),
+            overwrite=True,
+            track_changes=True,
+        )
+        accepted = tmp_path / "accepted.docx"
+        mcp_mod.docx_accept_tracked_changes(
+            str(tracked), output_path=str(accepted), overwrite=True,
+        )
+        text = _read_output_text(str(accepted))
+        assert "Paper" in text
+        assert "Manuscript" not in text
+
+
+# ---------------------------------------------------------------------------
+# docx_get_properties
+# ---------------------------------------------------------------------------
+
+class TestDocxGetProperties:
+    def test_file_not_found(self, tmp_path):
+        result = json.loads(mcp_mod.docx_get_properties(str(tmp_path / "missing.docx")))
+        assert result["status"] == "error"
+
+    def test_reads_core_properties(self, tmp_path):
+        docx = _build_docx_with_properties(tmp_path)
+        result = json.loads(mcp_mod.docx_get_properties(str(docx)))
+        assert result["status"] == "ok"
+        assert result["title"] == "Test Paper"
+        assert result["author"] == "Jane Smith"
+        assert result["last_modified_by"] == "Jane Smith"
+        assert result["revision"] == "3"
+
+    def test_reads_app_properties(self, tmp_path):
+        docx = _build_docx_with_properties(tmp_path)
+        result = json.loads(mcp_mod.docx_get_properties(str(docx)))
+        assert result["word_count"] == 1234
+        assert result["page_count"] == 4
+        assert result["paragraph_count"] == 50
+
+    def test_no_props_files(self, tmp_path):
+        docx = _build_docx(tmp_path)
+        result = json.loads(mcp_mod.docx_get_properties(str(docx)))
+        assert result["status"] == "ok"
+        assert "title" not in result

@@ -1396,6 +1396,448 @@ def docx_zotero_insert_citations(
 
 
 # ---------------------------------------------------------------------------
+# Additional DOCX inspection / editing tools
+# ---------------------------------------------------------------------------
+
+@mcp.tool
+def docx_list_images(docx_path: str) -> str:
+    """
+    List all images embedded in a DOCX.
+
+    Returns each image's relationship ID (rId), filename inside the archive,
+    content type, and alt text if set. Use rId with docx_replace_image.
+
+    Args:
+        docx_path: Path to a .docx file.
+    """
+    path = _as_path(docx_path)
+    if not path.exists():
+        return json.dumps({"status": "error", "error": f"file not found: {path}"}, indent=2)
+    try:
+        with zipfile.ZipFile(path, "r") as zf:
+            rels_xml = zf.read("word/_rels/document.xml.rels").decode("utf-8")
+            doc_xml = zf.read("word/document.xml").decode("utf-8")
+            all_files = set(zf.namelist())
+
+        IMAGE_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
+        # Parse relationship file to find images
+        _register_doc_namespaces(rels_xml)
+        rels_root = ET.fromstring(rels_xml.encode("utf-8"))
+        PKG_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
+        images = {}
+        for rel in rels_root.iter(f"{{{PKG_NS}}}Relationship"):
+            if rel.get("Type") == IMAGE_TYPE:
+                rid = rel.get("Id")
+                target = rel.get("Target", "")
+                archive_path = f"word/{target}" if not target.startswith("/") else target.lstrip("/")
+                content_type = ""
+                # Infer content type from extension
+                ext = target.rsplit(".", 1)[-1].lower()
+                ct_map = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+                          "gif": "image/gif", "tiff": "image/tiff", "tif": "image/tiff",
+                          "emf": "image/x-emf", "wmf": "image/x-wmf", "svg": "image/svg+xml"}
+                content_type = ct_map.get(ext, f"image/{ext}")
+                images[rid] = {
+                    "rId": rid,
+                    "archive_path": archive_path,
+                    "filename": target.split("/")[-1],
+                    "content_type": content_type,
+                    "exists_in_archive": archive_path in all_files,
+                    "alt_text": "",
+                }
+
+        # Extract alt text from document XML drawing elements
+        _register_doc_namespaces(doc_xml)
+        doc_root = ET.fromstring(doc_xml.encode("utf-8"))
+        DRP_NS = "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"
+        WP_NS = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+        A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
+        R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+        for drawing in doc_root.iter(f"{{{_W_NS}}}drawing"):
+            for inline in list(drawing.iter(f"{{{WP_NS}}}inline")) + list(drawing.iter(f"{{{WP_NS}}}anchor")):
+                # alt text is in wp:docPr/@descr or @title
+                doc_pr = inline.find(f"{{{WP_NS}}}docPr")
+                alt = ""
+                if doc_pr is not None:
+                    alt = doc_pr.get("descr") or doc_pr.get("title") or ""
+                # find the rId via blip embed
+                for blip in inline.iter(f"{{{A_NS}}}blip"):
+                    rid = blip.get(f"{{{R_NS}}}embed")
+                    if rid and rid in images:
+                        images[rid]["alt_text"] = alt
+
+        image_list = sorted(images.values(), key=lambda x: x["rId"])
+        return json.dumps({
+            "status": "ok",
+            "docx_path": str(path),
+            "image_count": len(image_list),
+            "images": image_list,
+        }, indent=2)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+
+@mcp.tool
+def docx_replace_image(
+    docx_path: str,
+    rid: str,
+    new_image_path: str,
+    output_path: Optional[str] = None,
+    overwrite: bool = False,
+) -> str:
+    """
+    Replace an embedded image in a DOCX with a new image file.
+
+    The replacement image is stored under the same archive path as the
+    original, preserving all layout and sizing. Use docx_list_images to
+    find the rId for the image you want to replace.
+
+    Args:
+        docx_path: Input .docx path.
+        rid: Relationship ID of the image to replace (e.g. "rId5").
+        new_image_path: Path to the replacement image file.
+        output_path: Destination .docx. Defaults to *_updated_images.docx.
+        overwrite: Allow overwriting output_path if it already exists.
+    """
+    input_path = _as_path(docx_path)
+    if not input_path.exists():
+        return json.dumps({"status": "error", "error": f"file not found: {input_path}"}, indent=2)
+    new_img = _as_path(new_image_path)
+    if not new_img.exists():
+        return json.dumps({"status": "error", "error": f"new image not found: {new_img}"}, indent=2)
+    out_path = _as_path(output_path) if output_path else \
+        input_path.with_name(f"{input_path.stem}_updated_images{input_path.suffix}")
+    if out_path.exists() and not overwrite:
+        return json.dumps({"status": "error", "error": f"output exists: {out_path}", "set_overwrite": True}, indent=2)
+
+    try:
+        with zipfile.ZipFile(input_path, "r") as zf:
+            rels_xml = zf.read("word/_rels/document.xml.rels").decode("utf-8")
+
+        IMAGE_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
+        PKG_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
+        _register_doc_namespaces(rels_xml)
+        rels_root = ET.fromstring(rels_xml.encode("utf-8"))
+        archive_path = None
+        for rel in rels_root.iter(f"{{{PKG_NS}}}Relationship"):
+            if rel.get("Type") == IMAGE_TYPE and rel.get("Id") == rid:
+                target = rel.get("Target", "")
+                archive_path = f"word/{target}" if not target.startswith("/") else target.lstrip("/")
+                break
+        if archive_path is None:
+            return json.dumps({"status": "error", "error": f"rId '{rid}' not found or is not an image"}, indent=2)
+
+        new_image_data = new_img.read_bytes()
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(input_path, "r") as zin, \
+             zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED) as zout:
+            for item in zin.infolist():
+                data = zin.read(item.filename)
+                if item.filename == archive_path:
+                    data = new_image_data
+                zout.writestr(item, data)
+
+        with zipfile.ZipFile(out_path, "r") as zf:
+            bad = zf.testzip()
+        return json.dumps({
+            "status": "ok" if bad is None else "zip_error",
+            "rId": rid,
+            "replaced_archive_path": archive_path,
+            "new_image": str(new_img),
+            "output_path": str(out_path),
+        }, indent=2)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+
+@mcp.tool
+def docx_get_tables(docx_path: str) -> str:
+    """
+    Extract all tables from a DOCX as structured data.
+
+    Returns each table's index and rows, where each row is a list of cell
+    text strings. Useful for verifying results tables without opening Word.
+
+    Args:
+        docx_path: Path to a .docx file.
+    """
+    path = _as_path(docx_path)
+    if not path.exists():
+        return json.dumps({"status": "error", "error": f"file not found: {path}"}, indent=2)
+    try:
+        xml = _docx_xml(path)
+        _register_doc_namespaces(xml)
+        root = ET.fromstring(xml.encode("utf-8"))
+        tables = []
+        for t_idx, tbl in enumerate(root.iter(_w("tbl")), start=1):
+            rows = []
+            for tr in tbl.findall(_w("tr")):
+                cells = []
+                for tc in tr.findall(_w("tc")):
+                    cell_text = "".join(t.text or "" for t in tc.iter(_w("t")))
+                    cells.append(cell_text)
+                if cells:
+                    rows.append(cells)
+            tables.append({
+                "table_index": t_idx,
+                "row_count": len(rows),
+                "col_count": max((len(r) for r in rows), default=0),
+                "rows": rows,
+            })
+        return json.dumps({
+            "status": "ok",
+            "docx_path": str(path),
+            "table_count": len(tables),
+            "tables": tables,
+        }, indent=2)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+
+@mcp.tool
+def docx_get_comments(docx_path: str) -> str:
+    """
+    Read all review comments from a DOCX.
+
+    Returns each comment's ID, author, date, and text. Useful for reading
+    co-author or reviewer feedback already embedded in the document.
+
+    Args:
+        docx_path: Path to a .docx file.
+    """
+    path = _as_path(docx_path)
+    if not path.exists():
+        return json.dumps({"status": "error", "error": f"file not found: {path}"}, indent=2)
+    try:
+        with zipfile.ZipFile(path, "r") as zf:
+            if "word/comments.xml" not in zf.namelist():
+                return json.dumps({
+                    "status": "ok",
+                    "docx_path": str(path),
+                    "comment_count": 0,
+                    "comments": [],
+                }, indent=2)
+            cxml = zf.read("word/comments.xml").decode("utf-8")
+        _register_doc_namespaces(cxml)
+        croot = ET.fromstring(cxml.encode("utf-8"))
+        comments = []
+        for comment in croot.findall(_w("comment")):
+            cid = comment.get(_w("id"), "")
+            author = comment.get(_w("author"), "")
+            date = comment.get(_w("date"), "")
+            text = "".join(t.text or "" for t in comment.iter(_w("t")))
+            comments.append({"id": cid, "author": author, "date": date, "text": text})
+        return json.dumps({
+            "status": "ok",
+            "docx_path": str(path),
+            "comment_count": len(comments),
+            "comments": comments,
+        }, indent=2)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+
+@mcp.tool
+def docx_get_tracked_changes(docx_path: str) -> str:
+    """
+    List all pending tracked changes (insertions and deletions) in a DOCX.
+
+    Returns each change's type (insertion/deletion), author, date, and text.
+    Use docx_accept_tracked_changes to accept all changes at once.
+
+    Args:
+        docx_path: Path to a .docx file.
+    """
+    path = _as_path(docx_path)
+    if not path.exists():
+        return json.dumps({"status": "error", "error": f"file not found: {path}"}, indent=2)
+    try:
+        xml = _docx_xml(path)
+        _register_doc_namespaces(xml)
+        root = ET.fromstring(xml.encode("utf-8"))
+        changes = []
+        for el in root.iter():
+            if el.tag == _w("del"):
+                text = "".join(t.text or "" for t in el.iter(_w("delText")))
+                changes.append({
+                    "type": "deletion",
+                    "author": el.get(_w("author"), ""),
+                    "date": el.get(_w("date"), ""),
+                    "text": text,
+                    "id": el.get(_w("id"), ""),
+                })
+            elif el.tag == _w("ins"):
+                text = "".join(t.text or "" for t in el.iter(_w("t")))
+                changes.append({
+                    "type": "insertion",
+                    "author": el.get(_w("author"), ""),
+                    "date": el.get(_w("date"), ""),
+                    "text": text,
+                    "id": el.get(_w("id"), ""),
+                })
+        return json.dumps({
+            "status": "ok",
+            "docx_path": str(path),
+            "change_count": len(changes),
+            "changes": changes,
+        }, indent=2)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+
+@mcp.tool
+def docx_accept_tracked_changes(
+    docx_path: str,
+    output_path: Optional[str] = None,
+    overwrite: bool = False,
+) -> str:
+    """
+    Accept all tracked changes in a DOCX, producing a clean copy.
+
+    Deletions are removed; insertions are kept as normal text. Run/paragraph
+    property changes (rPrChange, pPrChange) are also resolved. The original
+    file is not modified.
+
+    Args:
+        docx_path: Input .docx path.
+        output_path: Destination .docx. Defaults to *_accepted.docx.
+        overwrite: Allow overwriting output_path if it already exists.
+    """
+    input_path = _as_path(docx_path)
+    if not input_path.exists():
+        return json.dumps({"status": "error", "error": f"file not found: {input_path}"}, indent=2)
+    out_path = _as_path(output_path) if output_path else \
+        input_path.with_name(f"{input_path.stem}_accepted{input_path.suffix}")
+    if out_path.exists() and not overwrite:
+        return json.dumps({"status": "error", "error": f"output exists: {out_path}", "set_overwrite": True}, indent=2)
+
+    try:
+        xml = _docx_xml(input_path)
+        _register_doc_namespaces(xml)
+        root = ET.fromstring(xml.encode("utf-8"))
+
+        dels_removed = 0
+        ins_unwrapped = 0
+
+        def _accept(parent: ET.Element) -> None:
+            nonlocal dels_removed, ins_unwrapped
+            i = 0
+            while i < len(parent):
+                child = parent[i]
+                if child.tag == _w("del"):
+                    parent.remove(child)
+                    dels_removed += 1
+                elif child.tag == _w("ins"):
+                    # Replace <w:ins> with its children in-place
+                    children = list(child)
+                    idx = i
+                    parent.remove(child)
+                    for j, sub in enumerate(children):
+                        parent.insert(idx + j, sub)
+                    ins_unwrapped += 1
+                    i += len(children)
+                    continue
+                else:
+                    # Remove rPrChange / pPrChange (revision metadata)
+                    for sub_tag in (_w("rPrChange"), _w("pPrChange")):
+                        for stale in child.findall(sub_tag):
+                            child.remove(stale)
+                        # also check one level deeper (rPr/pPr contain these)
+                        for rpr in child.findall(_w("rPr")):
+                            for stale in rpr.findall(sub_tag):
+                                rpr.remove(stale)
+                        for ppr in child.findall(_w("pPr")):
+                            for stale in ppr.findall(sub_tag):
+                                ppr.remove(stale)
+                    _accept(child)
+                    i += 1
+
+        _accept(root)
+
+        new_xml = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+        new_xml = _restore_root_namespaces(xml, new_xml)
+        _docx_copy_with_replaced_xml(input_path, out_path, {"word/document.xml": new_xml})
+        with zipfile.ZipFile(out_path, "r") as zf:
+            bad = zf.testzip()
+        return json.dumps({
+            "status": "ok" if bad is None else "zip_error",
+            "output_path": str(out_path),
+            "deletions_removed": dels_removed,
+            "insertions_accepted": ins_unwrapped,
+        }, indent=2)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+
+@mcp.tool
+def docx_get_properties(docx_path: str) -> str:
+    """
+    Read document metadata from a DOCX (title, author, word count, etc.).
+
+    Reads docProps/core.xml (Dublin Core metadata) and docProps/app.xml
+    (application statistics including word count and page count).
+
+    Args:
+        docx_path: Path to a .docx file.
+    """
+    path = _as_path(docx_path)
+    if not path.exists():
+        return json.dumps({"status": "error", "error": f"file not found: {path}"}, indent=2)
+    try:
+        with zipfile.ZipFile(path, "r") as zf:
+            names = zf.namelist()
+            core_xml = zf.read("docProps/core.xml").decode("utf-8") if "docProps/core.xml" in names else ""
+            app_xml = zf.read("docProps/app.xml").decode("utf-8") if "docProps/app.xml" in names else ""
+
+        DC_NS = "http://purl.org/dc/elements/1.1/"
+        DCP_NS = "http://schemas.openxmlformats.org/package/2006/metadata/core-properties"
+        DCTERMS_NS = "http://purl.org/dc/terms/"
+        APP_NS = "http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"
+
+        props: dict = {"status": "ok", "docx_path": str(path)}
+
+        if core_xml:
+            _register_doc_namespaces(core_xml)
+            croot = ET.fromstring(core_xml.encode("utf-8"))
+            for tag, key in [
+                (f"{{{DC_NS}}}title", "title"),
+                (f"{{{DC_NS}}}creator", "author"),
+                (f"{{{DC_NS}}}description", "description"),
+                (f"{{{DC_NS}}}subject", "subject"),
+                (f"{{{DCP_NS}}}lastModifiedBy", "last_modified_by"),
+                (f"{{{DCP_NS}}}revision", "revision"),
+                (f"{{{DCP_NS}}}keywords", "keywords"),
+                (f"{{{DCTERMS_NS}}}created", "created"),
+                (f"{{{DCTERMS_NS}}}modified", "modified"),
+            ]:
+                el = croot.find(tag)
+                if el is not None and el.text:
+                    props[key] = el.text
+
+        if app_xml:
+            _register_doc_namespaces(app_xml)
+            aroot = ET.fromstring(app_xml.encode("utf-8"))
+            for tag, key in [
+                (f"{{{APP_NS}}}Words", "word_count"),
+                (f"{{{APP_NS}}}Pages", "page_count"),
+                (f"{{{APP_NS}}}Characters", "character_count"),
+                (f"{{{APP_NS}}}Paragraphs", "paragraph_count"),
+                (f"{{{APP_NS}}}Application", "application"),
+                (f"{{{APP_NS}}}AppVersion", "app_version"),
+            ]:
+                el = aroot.find(tag)
+                if el is not None and el.text:
+                    try:
+                        props[key] = int(el.text)
+                    except ValueError:
+                        props[key] = el.text
+
+        return json.dumps(props, indent=2)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+
+# ---------------------------------------------------------------------------
 # LibreOffice tools — connects to VirtualBox VM running LibreOffice
 #
 # Extension API structure:

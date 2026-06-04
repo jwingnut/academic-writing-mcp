@@ -133,9 +133,16 @@ zotero_check_connection()
 |------|-------------|
 | `docx_extract_text(docx_path)` | Extract all visible paragraph text from a DOCX |
 | `docx_get_headings(docx_path)` | Extract heading outline (level + text) for navigation |
-| `docx_zotero_audit(docx_path, suspect_terms)` | Count live Zotero fields and find visible suspect citation text |
+| `docx_get_tables(docx_path)` | Extract all tables as structured row/cell data |
+| `docx_get_properties(docx_path)` | Read document metadata (title, author, word count, page count) |
+| `docx_list_images(docx_path)` | List embedded images with rId, filename, and alt text |
+| `docx_replace_image(docx_path, rid, new_image_path)` | Swap an embedded image by relationship ID |
 | `docx_text_replace(docx_path, replacements, track_changes)` | Find-and-replace plain text; optionally emit tracked changes |
 | `docx_add_comment(docx_path, comments, author)` | Add review comments anchored to specific text |
+| `docx_get_comments(docx_path)` | Read all existing review comments (author, date, text) |
+| `docx_get_tracked_changes(docx_path)` | List pending tracked insertions and deletions |
+| `docx_accept_tracked_changes(docx_path)` | Accept all tracked changes, producing a clean copy |
+| `docx_zotero_audit(docx_path, suspect_terms)` | Count live Zotero fields and find visible suspect citation text |
 | `docx_zotero_insert_citations(docx_path, replacements, output_path)` | Replace exact plain-text labels with Zotero Word fields |
 
 `docx_zotero_insert_citations` accepts replacements like:
